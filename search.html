@@ -4,24 +4,123 @@
   <meta charset="UTF-8" />
   <title>Search Users</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f7fa;
+      color: #333;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 25px;
+      background: #4a90e2;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    nav button {
+      background: #fff;
+      border: none;
+      margin-left: 8px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #4a90e2;
+      transition: 0.2s;
+    }
+    nav button:hover {
+      background: #e6eefc;
+    }
+    main {
+      padding: 25px;
+      max-width: 800px;
+      margin: auto;
+    }
+    .search-bar {
+      display: flex;
+      margin-bottom: 25px;
+    }
+    .search-bar input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px 0 0 8px;
+      outline: none;
+      font-size: 15px;
+    }
+    .search-bar button {
+      padding: 10px 18px;
+      border: none;
+      background: #4a90e2;
+      color: #fff;
+      border-radius: 0 8px 8px 0;
+      cursor: pointer;
+      font-weight: 600;
+      transition: 0.2s;
+    }
+    .search-bar button:hover {
+      background: #357abd;
+    }
+    .card {
+      background: #fff;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card strong {
+      color: #222;
+    }
+    .card button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      background: #28a745;
+      color: #fff;
+      transition: 0.2s;
+    }
+    .card button:hover {
+      background: #218838;
+    }
+    .empty {
+      color: #777;
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
-  <!-- Navigation Bar -->
-  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
+  <header>
     <h1>Search Users</h1>
-    <div>
+    <nav>
       <button onclick="goHome()">Home</button>
       <button onclick="goNotifications()">Notifications</button>
       <button onclick="goSearch()">Search Users</button>
       <button onclick="goPlay()">Play</button>
       <button id="signoutBtn">Sign Out</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search by username or email..." />
+      <button onclick="searchUsers()">Search</button>
     </div>
-  </div>
-
-  <input type="text" id="searchInput" placeholder="Search by username/email" />
-  <button onclick="searchUsers()">Search</button>
-
-  <div id="userList" style="margin-top:20px;"></div>
+    <div id="userList"></div>
+  </main>
 
   <script>
     const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
@@ -48,15 +147,23 @@
 
     // --- Search users ---
     async function searchUsers() {
-      const query = document.getElementById("searchInput").value;
+      const query = document.getElementById("searchInput").value.trim();
+      if (!query) {
+        document.getElementById("userList").innerHTML = "<p class='empty'>Please enter a search term.</p>";
+        return;
+      }
+
       let { data: users, error } = await supabase
         .from("profiles")
         .select("*")
-        .ilike("username", `%${query}%`)
-        .neq("id", currentUser.id) // exclude self
-        .limit(40); // load max 40 at a time
+        .or(`username.ilike.%${query}%,email.ilike.%${query}%`)
+        .neq("id", currentUser.id)
+        .limit(40);
 
-      if (error) { alert(error.message); return; }
+      if (error) { 
+        alert(error.message); 
+        return; 
+      }
 
       renderUserList(users);
     }
@@ -65,15 +172,15 @@
       const div = document.getElementById("userList");
       div.innerHTML = "";
       if (!users.length) {
-        div.innerHTML = "<p>No users found.</p>";
+        div.innerHTML = "<p class='empty'>No users found.</p>";
         return;
       }
 
       users.forEach(user => {
         const row = document.createElement("div");
-        row.style.marginBottom = "10px";
+        row.className = "card";
         row.innerHTML = `
-          <strong>${user.username}</strong> (${user.email})
+          <span><strong>${user.username}</strong> (${user.email})</span>
           <button onclick="sendFriendRequest('${user.id}')">Add Friend</button>
         `;
         div.appendChild(row);
@@ -82,7 +189,7 @@
 
     async function sendFriendRequest(friendId) {
       try {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("friendships")
           .insert({ user_id: currentUser.id, friend_id: friendId, status: "pending" });
         if (error) throw error;
