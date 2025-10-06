@@ -44,6 +44,12 @@
       try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        
+        currentUser = data.user;
+        if (!currentUser) {
+          alert("Login failed: no user returned");
+          return;
+        }
         await supabase.from("profiles").upsert({
           id: currentUser.id,
           email: currentUser.email,
