@@ -323,9 +323,20 @@
 
       mqttClient.on("message", (topic, message) => {
         const msg = message.toString();
-        if (topic.endsWith("/slider") && role==="receiver") {
-          document.getElementById("receivedValue").innerText = msg;
+        // if (topic.endsWith("/slider") && role==="receiver") {
+        // if (topic.endsWith("/slider") ) {
+        //   document.getElementById("receivedValue").innerText = msg;
+        // }
+        if (topic.endsWith("/slider")) {
+        document.getElementById("receivedValue").innerText = msg;
+
+        // Update receiver's slider to reflect sender's value
+        if (role === "receiver") {
+            document.getElementById("playSlider").value = msg;
         }
+        }
+
+
         if (topic.endsWith("/chat")) {
           const chatDiv = document.getElementById("chatMessages");
           const isSelf = msg.startsWith(currentUser.email);
