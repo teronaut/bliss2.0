@@ -5,24 +5,112 @@
   <title>Notifications</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f7fa;
+      color: #333;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 25px;
+      background: #4a90e2;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    nav button {
+      background: #fff;
+      border: none;
+      margin-left: 8px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #4a90e2;
+      transition: 0.2s;
+    }
+    nav button:hover {
+      background: #e6eefc;
+    }
+    main {
+      padding: 25px;
+      max-width: 800px;
+      margin: auto;
+    }
+    h3 {
+      margin-top: 30px;
+      color: #4a4a4a;
+    }
+    .card {
+      background: #fff;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card strong {
+      color: #222;
+    }
+    .actions button {
+      margin-left: 8px;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: 0.2s;
+    }
+    .actions .accept {
+      background: #28a745;
+      color: #fff;
+    }
+    .actions .accept:hover {
+      background: #218838;
+    }
+    .actions .decline {
+      background: #dc3545;
+      color: #fff;
+    }
+    .actions .decline:hover {
+      background: #c82333;
+    }
+    .empty {
+      color: #777;
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
-  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
+  <header>
     <h1>Notifications</h1>
-    <div>
+    <nav>
       <button onclick="goHome()">Home</button>
       <button onclick="goNotifications()">Notifications</button>
       <button onclick="goSearch()">Search Users</button>
       <button onclick="goPlay()">Play</button>
       <button id="signoutBtn">Sign Out</button>
-    </div>
-  </div>
+    </nav>
+  </header>
 
-  <h3>Incoming Friend Requests</h3>
-  <div id="friendRequests"></div>
+  <main>
+    <h3>Incoming Friend Requests</h3>
+    <div id="friendRequests" class="section"></div>
 
-  <h3>Incoming Play Requests</h3>
-  <div id="playRequests"></div>
+    <h3>Incoming Play Requests</h3>
+    <div id="playRequests" class="section"></div>
+  </main>
 
   <script>
     const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
@@ -61,7 +149,7 @@
         .order("created_at", { ascending: true });
 
       const div = document.getElementById("friendRequests");
-      div.innerHTML = requests.length ? "" : "<p>No incoming friend requests.</p>";
+      div.innerHTML = requests.length ? "" : "<p class='empty'>No incoming friend requests.</p>";
 
       for (let req of requests) {
         const { data: profile } = await supabase
@@ -71,11 +159,13 @@
           .single();
 
         const row = document.createElement("div");
-        row.style.marginBottom = "10px";
+        row.className = "card";
         row.innerHTML = `
-          <strong>${profile.username}</strong> (${profile.email})
-          <button onclick="acceptFriend('${req.id}')">Accept</button>
-          <button onclick="declineFriend('${req.id}')">Decline</button>
+          <span><strong>${profile.username}</strong> (${profile.email})</span>
+          <div class="actions">
+            <button class="accept" onclick="acceptFriend('${req.id}')">Accept</button>
+            <button class="decline" onclick="declineFriend('${req.id}')">Decline</button>
+          </div>
         `;
         div.appendChild(row);
       }
@@ -103,7 +193,7 @@
         .order("created_at", { ascending: true });
 
       const div = document.getElementById("playRequests");
-      div.innerHTML = requests.length ? "" : "<p>No incoming play requests.</p>";
+      div.innerHTML = requests.length ? "" : "<p class='empty'>No incoming play requests.</p>";
 
       for (let req of requests) {
         const { data: profile } = await supabase
@@ -113,11 +203,13 @@
           .single();
 
         const row = document.createElement("div");
-        row.style.marginBottom = "10px";
+        row.className = "card";
         row.innerHTML = `
-          <strong>${profile.username}</strong> wants to play as <strong>${req.from_role}</strong>
-          <button onclick="acceptPlay(${req.id}, '${req.from_role}')">Accept</button>
-          <button onclick="declinePlay(${req.id})">Decline</button>
+          <span><strong>${profile.username}</strong> wants to play as <strong>${req.from_role}</strong></span>
+          <div class="actions">
+            <button class="accept" onclick="acceptPlay(${req.id}, '${req.from_role}')">Accept</button>
+            <button class="decline" onclick="declinePlay(${req.id})">Decline</button>
+          </div>
         `;
         div.appendChild(row);
       }
@@ -127,18 +219,10 @@
       const topicName = "game/conn_" + crypto.randomUUID();
       const toRole = fromRole === "sender" ? "receiver" : "sender";
 
-      // Set old requests from this user to denied
-      const oldReq = await supabase.from("play_requests")
-        .update({status:"denied"})
-        .eq("from_user_id", await getRequestUser(requestId))
-        .eq("to_user_id", currentUser.id)
-        .eq("status","pending");
-
       await supabase.from("play_requests")
         .update({ status: 'accepted', topic_name: topicName, to_role: toRole })
         .eq("id", requestId);
 
-      // Create game session
       await supabase.from("game_sessions").insert({
         sender_id: fromRole==="sender" ? (await getRequestUser(requestId)) : currentUser.id,
         receiver_id: fromRole==="receiver" ? (await getRequestUser(requestId)) : currentUser.id,
@@ -146,7 +230,6 @@
         status: "active"
       });
 
-      // Notify sender
       mqttClient.publish(`user/${await getRequestUser(requestId)}/play_status`, JSON.stringify({
         topic: topicName,
         status: "accepted",
