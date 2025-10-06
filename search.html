@@ -110,86 +110,155 @@
       if(!users.length){ div.innerHTML = "<p class='empty'>No users found.</p>"; return; }
 
       for(let user of users){
-        // Fetch any existing friendship row
-        let { data: friendship } = await supabase
+        // Fetch any existing friendship row - check both directions
+        let { data: friendships } = await supabase
           .from("friendships")
           .select("*")
-          .or(`user_id.eq.${currentUser.id},friend_id.eq.${currentUser.id}`)
-          .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
-          .limit(1)
-          .single();
+          .or(`and(user_id.eq.${currentUser.id},friend_id.eq.${user.id}),and(user_id.eq.${user.id},friend_id.eq.${currentUser.id})`);
 
         let btnText = "Add Friend";
         let btnClass = "add";
         let actionType = "add";
+        let friendshipData = null;
 
-        if(friendship){
-          if(friendship.status==="accepted"){
-            btnText = "Friends"; btnClass="friends"; actionType="none";
-          } else if(friendship.status==="pending"){
-            if(friendship.user_id === currentUser.id){
-              btnText="Revoke"; btnClass="revoke"; actionType="revoke";
-            } else {
-              btnText="Revoke"; btnClass="revoke"; actionType="revoke"; // current user can still revoke
+        // Check if there's an ACTIVE friendship (pending or accepted, NOT revoked/declined)
+        if(friendships && friendships.length > 0){
+          // Find the most recent active friendship
+          const activeFriendship = friendships.find(f => 
+            f.status === "pending" || f.status === "accepted"
+          );
+          
+          if(activeFriendship){
+            friendshipData = activeFriendship;
+            
+            if(activeFriendship.status === "accepted"){
+              btnText = "Friends"; 
+              btnClass = "friends"; 
+              actionType = "none";
+            } else if(activeFriendship.status === "pending"){
+              btnText = "Revoke"; 
+              btnClass = "revoke"; 
+              actionType = "revoke";
             }
           }
+          // If no active friendship found (all are revoked/declined), allow new friend request
         }
 
         const row = document.createElement("div");
-        row.className="card";
+        row.className = "card";
         row.innerHTML = `<span><strong>${user.username}</strong> (${user.email})</span>
-          <button id="friendBtn-${user.id}" class="${btnClass}">${btnText}</button>`;
+          <button id="friendBtn-${user.id}" class="${btnClass}" ${actionType === "none" ? "disabled" : ""}>${btnText}</button>`;
         div.appendChild(row);
 
-        document.getElementById(`friendBtn-${user.id}`).addEventListener("click", async ()=>{
-          if(actionType==="add"){
-            await sendFriendRequest(user.id);
-            document.getElementById(`friendBtn-${user.id}`).innerText="Revoke";
-            document.getElementById(`friendBtn-${user.id}`).className="revoke";
-          } else if(actionType==="revoke"){
-            await revokeFriendRequest(friendship.id);
-            document.getElementById(`friendBtn-${user.id}`).innerText="Add Friend";
-            document.getElementById(`friendBtn-${user.id}`).className="add";
+        const btn = document.getElementById(`friendBtn-${user.id}`);
+        let currentActionType = actionType;
+        let currentFriendshipData = friendshipData;
+
+        btn.addEventListener("click", async ()=>{
+          if(currentActionType === "add"){
+            const newFriendship = await sendFriendRequest(user.id);
+            if(newFriendship){
+              btn.innerText = "Revoke";
+              btn.className = "revoke";
+              currentActionType = "revoke";
+              currentFriendshipData = newFriendship;
+            }
+          } else if(currentActionType === "revoke"){
+            const success = await revokeFriendRequest(currentFriendshipData.id);
+            if(success){
+              btn.innerText = "Add Friend";
+              btn.className = "add";
+              currentActionType = "add";
+              currentFriendshipData = null;
+            }
           }
         });
       }
     }
 
     async function sendFriendRequest(friendId){
-      await supabase.from("friendships").insert({ user_id: currentUser.id, friend_id: friendId, status:"pending" });
+      try {
+        // First, check if there's an existing friendship (revoked or declined)
+        const { data: existingFriendships } = await supabase
+          .from("friendships")
+          .select("*")
+          .or(`and(user_id.eq.${currentUser.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${currentUser.id})`);
+
+        // Check if there's a revoked or declined friendship
+        const inactiveFriendship = existingFriendships?.find(f => 
+          f.status === "revoked" || f.status === "denied"
+        );
+
+        let data, error;
+
+        if(inactiveFriendship){
+          // Update the existing revoked/declined friendship to pending
+          const result = await supabase
+            .from("friendships")
+            .update({ 
+              status: "pending",
+              user_id: currentUser.id,
+              friend_id: friendId
+            })
+            .eq("id", inactiveFriendship.id)
+            .select()
+            .single();
+          data = result.data;
+          error = result.error;
+        } else {
+          // Insert new friendship
+          const result = await supabase
+            .from("friendships")
+            .insert({ 
+              user_id: currentUser.id, 
+              friend_id: friendId, 
+              status: "pending" 
+            })
+            .select()
+            .single();
+          data = result.data;
+          error = result.error;
+        }
+        
+        if(error){
+          console.error("Error sending friend request:", error.message);
+          alert("Failed to send friend request: " + error.message);
+          return null;
+        }
+        console.log("Friend request sent successfully!");
+        return data;
+      } catch(err){
+        console.error("Send request failed:", err.message);
+        alert("Failed to send friend request");
+        return null;
+      }
     }
 
-    async function revokeFriendRequest(friendId) {
-  try {
-    // Find the friendship row
-    const { data: friendship, error } = await supabase
-      .from("friendships")
-      .select("*")
-      .or(
-        `(user_id.eq.${currentUser.id},friend_id.eq.${friendId})` + "," +
-        `(user_id.eq.${friendId},friend_id.eq.${currentUser.id})`
-      )
-      .single();
+    async function revokeFriendRequest(friendshipId) {
+      try {
+        console.log("Revoking friendship ID:", friendshipId);
+        
+        // Update status to "revoked"
+        const { data, error } = await supabase
+          .from("friendships")
+          .update({ status: "revoked" })
+          .eq("id", friendshipId)
+          .select();
 
-    if (error || !friendship) {
-      console.error("Error fetching friendship:", error?.message || "No friendship found");
-      return;
+        if (error) {
+          console.error("Error revoking friendship:", error.message);
+          alert("Failed to revoke request: " + error.message);
+          return false;
+        }
+        
+        console.log("Friendship revoked successfully!", data);
+        return true;
+      } catch (err) {
+        console.error("Revoke request failed:", err.message);
+        alert("Failed to revoke request");
+        return false;
+      }
     }
-
-    // Update status to "revoked"
-    const { error: updateError } = await supabase
-      .from("friendships")
-      .update({ status: "revoked" })
-      .eq("id", friendship.id);
-
-    if (updateError) console.error("Error updating friendship:", updateError.message);
-    else console.log("Friendship revoked successfully!");
-  } catch (err) {
-    console.error("Revoke request failed:", err.message);
-  }
-}
-
-
 
     window.sendFriendRequest = sendFriendRequest;
   </script>
