@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Notifications</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
+    <h1>Notifications</h1>
+    <div>
+      <button onclick="goHome()">Home</button>
+      <button onclick="goNotifications()">Notifications</button>
+      <button onclick="goSearch()">Search Users</button>
+      <button onclick="goPlay()">Play</button>
+      <button id="signoutBtn">Sign Out</button>
+    </div>
+  </div>
+
+  <h3>Incoming Friend Requests</h3>
+  <div id="friendRequests"></div>
+
+  <h3>Incoming Play Requests</h3>
+  <div id="playRequests"></div>
+
+  <script>
+    const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyeWt3ZnhkeXF6aWhlZ3VmeXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NzAyOTcsImV4cCI6MjA3NTI0NjI5N30.MyuWcHwVUVjbslHrfxwReU0FST0mo-B-lpzsAZkL4oQ";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let currentUser = null;
+    let mqttClient = null;
+
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) window.location.href = "login.html";
+      currentUser = session.user;
+      loadFriendRequests();
+      loadPlayRequests();
+      initMQTT();
+    }
+    checkSession();
+
+    document.getElementById("signoutBtn").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    function goHome() { window.location.href = "home.html"; }
+    function goNotifications() { window.location.href = "notifications.html"; }
+    function goSearch() { window.location.href = "search.html"; }
+    function goPlay() { window.location.href = "play.html"; }
+
+    // --- Friend Requests ---
+    async function loadFriendRequests() {
+      const { data: requests } = await supabase
+        .from("friendships")
+        .select("*")
+        .eq("friend_id", currentUser.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+
+      const div = document.getElementById("friendRequests");
+      div.innerHTML = requests.length ? "" : "<p>No incoming friend requests.</p>";
+
+      for (let req of requests) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username,email")
+          .eq("id", req.user_id)
+          .single();
+
+        const row = document.createElement("div");
+        row.style.marginBottom = "10px";
+        row.innerHTML = `
+          <strong>${profile.username}</strong> (${profile.email})
+          <button onclick="acceptFriend('${req.id}')">Accept</button>
+          <button onclick="declineFriend('${req.id}')">Decline</button>
+        `;
+        div.appendChild(row);
+      }
+    }
+
+    async function acceptFriend(requestId) {
+      await supabase.from("friendships")
+        .update({ status: "accepted", topic_name: "friend_conn_" + crypto.randomUUID() })
+        .eq("id", requestId);
+      loadFriendRequests();
+    }
+
+    async function declineFriend(requestId) {
+      await supabase.from("friendships").update({ status: "denied" }).eq("id", requestId);
+      loadFriendRequests();
+    }
+
+    // --- Play Requests ---
+    async function loadPlayRequests() {
+      const { data: requests } = await supabase
+        .from("play_requests")
+        .select("*")
+        .eq("to_user_id", currentUser.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+
+      const div = document.getElementById("playRequests");
+      div.innerHTML = requests.length ? "" : "<p>No incoming play requests.</p>";
+
+      for (let req of requests) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username,email")
+          .eq("id", req.from_user_id)
+          .single();
+
+        const row = document.createElement("div");
+        row.style.marginBottom = "10px";
+        row.innerHTML = `
+          <strong>${profile.username}</strong> wants to play as <strong>${req.from_role}</strong>
+          <button onclick="acceptPlay(${req.id}, '${req.from_role}')">Accept</button>
+          <button onclick="declinePlay(${req.id})">Decline</button>
+        `;
+        div.appendChild(row);
+      }
+    }
+
+    async function acceptPlay(requestId, fromRole) {
+      const topicName = "game/conn_" + crypto.randomUUID();
+      const toRole = fromRole === "sender" ? "receiver" : "sender";
+
+      // Set old requests from this user to denied
+      const oldReq = await supabase.from("play_requests")
+        .update({status:"denied"})
+        .eq("from_user_id", await getRequestUser(requestId))
+        .eq("to_user_id", currentUser.id)
+        .eq("status","pending");
+
+      await supabase.from("play_requests")
+        .update({ status: 'accepted', topic_name: topicName, to_role: toRole })
+        .eq("id", requestId);
+
+      // Create game session
+      await supabase.from("game_sessions").insert({
+        sender_id: fromRole==="sender" ? (await getRequestUser(requestId)) : currentUser.id,
+        receiver_id: fromRole==="receiver" ? (await getRequestUser(requestId)) : currentUser.id,
+        topic_name: topicName,
+        status: "active"
+      });
+
+      // Notify sender
+      mqttClient.publish(`user/${await getRequestUser(requestId)}/play_status`, JSON.stringify({
+        topic: topicName,
+        status: "accepted",
+        from_user_email: currentUser.email,
+        to_role: toRole
+      }));
+
+      alert("Play request accepted! Redirecting to play screen...");
+      window.location.href = `play.html?topic=${topicName}&role=${toRole}`;
+    }
+
+    async function declinePlay(requestId) {
+      await supabase.from("play_requests").update({status:"denied"}).eq("id",requestId);
+      loadPlayRequests();
+    }
+
+    async function getRequestUser(requestId) {
+      const { data } = await supabase.from("play_requests").select("*").eq("id", requestId).single();
+      return data.from_user_id;
+    }
+
+    // --- MQTT ---
+    function initMQTT() {
+      const MQTT_URL = "wss://8642b4b309514925a481432e0557cffc.s1.eu.hivemq.cloud:8884/mqtt";
+      const MQTT_USERNAME = "imakashadhikary";
+      const MQTT_PASSWORD = "Askaban78@#";
+
+      mqttClient = mqtt.connect(MQTT_URL, { username: MQTT_USERNAME, password: MQTT_PASSWORD, clean: true });
+      mqttClient.on("connect", () => {
+        console.log("MQTT connected for notifications");
+        mqttClient.subscribe(`user/${currentUser.id}/friend_requests`);
+        mqttClient.subscribe(`user/${currentUser.id}/play_requests`);
+        mqttClient.subscribe(`user/${currentUser.id}/play_status`);
+      });
+
+      mqttClient.on("message", (topic, message) => {
+        const data = JSON.parse(message.toString());
+        if (topic.endsWith("/play_requests")) {
+          alert(`New play request from ${data.from_user_email}`);
+          loadPlayRequests();
+        }
+        if (topic.endsWith("/friend_requests")) {
+          alert(`New friend request from ${data.from_user_email}`);
+          loadFriendRequests();
+        }
+        if (topic.endsWith("/play_status")) {
+          alert(`${data.from_user_email} accepted your play request! Redirecting to game...`);
+          window.location.href = `play.html?topic=${data.topic}&role=${data.to_role}`;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

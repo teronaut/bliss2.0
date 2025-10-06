@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Search Users</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <!-- Navigation Bar -->
+  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
+    <h1>Search Users</h1>
+    <div>
+      <button onclick="goHome()">Home</button>
+      <button onclick="goNotifications()">Notifications</button>
+      <button onclick="goSearch()">Search Users</button>
+      <button onclick="goPlay()">Play</button>
+      <button id="signoutBtn">Sign Out</button>
+    </div>
+  </div>
+
+  <input type="text" id="searchInput" placeholder="Search by username/email" />
+  <button onclick="searchUsers()">Search</button>
+
+  <div id="userList" style="margin-top:20px;"></div>
+
+  <script>
+    const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyeWt3ZnhkeXF6aWhlZ3VmeXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NzAyOTcsImV4cCI6MjA3NTI0NjI5N30.MyuWcHwVUVjbslHrfxwReU0FST0mo-B-lpzsAZkL4oQ";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let currentUser = null;
+
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) window.location.href = "login.html";
+      else currentUser = session.user;
+    }
+    checkSession();
+
+    document.getElementById("signoutBtn").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    function goHome() { window.location.href = "home.html"; }
+    function goNotifications() { window.location.href = "notifications.html"; }
+    function goSearch() { window.location.href = "search.html"; }
+    function goPlay() { window.location.href = "play.html"; }
+
+    // --- Search users ---
+    async function searchUsers() {
+      const query = document.getElementById("searchInput").value;
+      let { data: users, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .ilike("username", `%${query}%`)
+        .neq("id", currentUser.id) // exclude self
+        .limit(40); // load max 40 at a time
+
+      if (error) { alert(error.message); return; }
+
+      renderUserList(users);
+    }
+
+    function renderUserList(users) {
+      const div = document.getElementById("userList");
+      div.innerHTML = "";
+      if (!users.length) {
+        div.innerHTML = "<p>No users found.</p>";
+        return;
+      }
+
+      users.forEach(user => {
+        const row = document.createElement("div");
+        row.style.marginBottom = "10px";
+        row.innerHTML = `
+          <strong>${user.username}</strong> (${user.email})
+          <button onclick="sendFriendRequest('${user.id}')">Add Friend</button>
+        `;
+        div.appendChild(row);
+      });
+    }
+
+    async function sendFriendRequest(friendId) {
+      try {
+        const { data, error } = await supabase
+          .from("friendships")
+          .insert({ user_id: currentUser.id, friend_id: friendId, status: "pending" });
+        if (error) throw error;
+        alert("Friend request sent!");
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    window.sendFriendRequest = sendFriendRequest;
+  </script>
+</body>
+</html>

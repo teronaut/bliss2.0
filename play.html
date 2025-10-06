@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Play</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    #mainContainer { display: flex; gap: 50px; margin-top: 20px; }
+    #sliderContainer, #chatContainer { flex: 1; }
+    #chatMessages { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+    #chatInput { width: 80%; }
+    .popup { position: fixed; top: 20px; right: 20px; background: #f0f0f0; border: 1px solid #ccc; padding: 15px; z-index: 1000; box-shadow: 2px 2px 10px rgba(0,0,0,0.2); }
+    .popup button { margin-left: 10px; }
+  </style>
+</head>
+<body>
+  <!-- Navigation Bar -->
+  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
+    <div id="userInfo"></div>
+    <div>
+      <button onclick="goHome()">Home</button>
+      <button onclick="goNotifications()">Notifications</button>
+      <button onclick="goSearch()">Search Users</button>
+      <button onclick="goPlay()">Play</button>
+      <button id="signoutBtn">Sign Out</button>
+    </div>
+  </div>
+
+  <div id="statusDiv"></div>
+  <div id="topicDiv"></div>
+
+  <!-- Friends list for starting game -->
+  <div id="friendsContainer">
+    <h3>Choose Friend to Play With</h3>
+    <div id="friendsList"></div>
+    <label for="roleSelect">Choose Role:</label>
+    <select id="roleSelect">
+      <option value="sender">Sender</option>
+      <option value="receiver">Receiver</option>
+    </select>
+  </div>
+
+  <!-- Play screen -->
+  <div id="playDiv" style="display:none;">
+    <div id="mainContainer">
+      <!-- Left: Slider -->
+      <div id="sliderContainer">
+        <h3>Slider Control</h3>
+        <input type="range" id="playSlider" min="0" max="100" value="50" style="width:100%;">
+        <span id="sliderValue">50</span>
+        <h3>Received Value</h3>
+        <div id="receivedValue">Waiting...</div>
+        <button id="endGameBtn">End Game</button>
+      </div>
+
+      <!-- Right: Chat -->
+      <div id="chatContainer">
+        <h3>Chat</h3>
+        <div id="chatMessages"></div>
+        <input type="text" id="chatInput" placeholder="Type a message..." />
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyeWt3ZnhkeXF6aWhlZ3VmeXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NzAyOTcsImV4cCI6MjA3NTI0NjI5N30.MyuWcHwVUVjbslHrfxwReU0FST0mo-B-lpzsAZkL4oQ";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = null;
+    let topicName = null;
+    let role = null;
+    let mqttClient = null;
+    let activeGame = null;
+
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) window.location.href = "login.html";
+      currentUser = session.user;
+      document.getElementById("userInfo").innerText = `User: ${currentUser.email}`;
+
+      // Only consider latest active game
+      const { data: games } = await supabase
+        .from("game_sessions")
+        .select("*")
+        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+        .eq("status","active")
+        .order("created_at",{ascending:false})
+        .limit(1);
+
+      if (games.length) {
+        const game = games[0];
+        topicName = game.topic_name;
+        role = game.sender_id === currentUser.id ? "sender" : "receiver";
+        activeGame = topicName;
+
+        document.getElementById("statusDiv").innerHTML = `Active game as <strong>${role}</strong>`;
+        document.getElementById("topicDiv").innerHTML = `Topic: <strong>${topicName}</strong>`;
+        document.getElementById("friendsContainer").style.display = "none";
+        document.getElementById("playDiv").style.display = "block";
+        initMQTT();
+      } else {
+        document.getElementById("topicDiv").innerHTML = "No active game.";
+        loadFriends();
+        subscribeIncomingPlayRequests();
+      }
+    }
+    checkSession();
+
+    document.getElementById("signoutBtn").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    function navigateWithCheck(url) {
+      if (activeGame) {
+        if (!confirm("Game is active. Do you want to end the game and leave?")) return;
+        document.getElementById("endGameBtn").click();
+      }
+      window.location.href = url;
+    }
+    function goHome() { navigateWithCheck("home.html"); }
+    function goNotifications() { navigateWithCheck("notifications.html"); }
+    function goSearch() { navigateWithCheck("search.html"); }
+    function goPlay() { navigateWithCheck("play.html"); }
+
+    // --- Load friends ---
+    async function loadFriends() {
+      const { data: friendsData } = await supabase
+        .from("friendships")
+        .select("*")
+        .or(`user_id.eq.${currentUser.id},friend_id.eq.${currentUser.id}`)
+        .eq("status","accepted");
+
+      const friendsProfiles = [];
+      for (let f of friendsData) {
+        const friendId = f.user_id === currentUser.id ? f.friend_id : f.user_id;
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username,email")
+          .eq("id", friendId)
+          .single();
+        friendsProfiles.push({ ...profile, friendId: friendId });
+      }
+
+      renderFriends(friendsProfiles);
+    }
+
+    function renderFriends(friends) {
+      const div = document.getElementById("friendsList");
+      div.innerHTML = "";
+      if (!friends.length) { div.innerHTML = "<p>No friends to play with.</p>"; return; }
+
+      friends.forEach(f => {
+        const row = document.createElement("div");
+        row.style.marginBottom = "10px";
+        row.innerHTML = `
+          <strong>${f.username}</strong> (${f.email})
+          <button onclick="createPlayRequest('${f.friendId}')">Play</button>
+        `;
+        div.appendChild(row);
+      });
+    }
+
+    // --- Centralized accept play request function ---
+    async function acceptPlayRequest(request) {
+      // Update play request
+      await supabase.from("play_requests")
+        .update({ status: "accepted" })
+        .eq("id", request.id);
+
+      // Create game session
+      const sender_id = request.from_role === "sender" ? request.from_user_id : currentUser.id;
+      const receiver_id = request.from_role === "receiver" ? request.from_user_id : currentUser.id;
+
+      await supabase.from("game_sessions").insert({
+        sender_id,
+        receiver_id,
+        topic_name: request.topic_name,
+        status: "active"
+      });
+
+      topicName = request.topic_name;
+      role = request.from_role === "sender" ? "receiver" : "sender";
+      activeGame = topicName;
+
+      document.getElementById("friendsContainer").style.display = "none";
+      document.getElementById("playDiv").style.display = "block";
+      document.getElementById("statusDiv").innerHTML = `Active game as <strong>${role}</strong>`;
+      document.getElementById("topicDiv").innerHTML = `Topic: <strong>${topicName}</strong>`;
+
+      // Notify sender via MQTT
+      if (mqttClient) mqttClient.publish(`${topicName}/game_status`, "started");
+
+      initMQTT();
+    }
+
+    async function createPlayRequest(friendId) {
+      const selectedRole = document.getElementById("roleSelect").value;
+
+      // Overwrite old pending request if exists
+      const { data: oldRequests } = await supabase
+        .from("play_requests")
+        .select("*")
+        .eq("from_user_id", currentUser.id)
+        .eq("to_user_id", friendId)
+        .eq("status", "pending");
+
+      for (let r of oldRequests) {
+        await supabase.from("play_requests").update({ status: "denied" }).eq("id", r.id);
+      }
+
+      const topic = `game-${Date.now()}-${currentUser.id}-${friendId}`;
+      await supabase.from("play_requests").insert({
+        from_user_id: currentUser.id,
+        to_user_id: friendId,
+        from_role: selectedRole,
+        status: "pending",
+        topic_name: topic
+      });
+
+      alert("Play request sent!");
+    }
+
+    // --- MQTT for receiving requests ---
+    function subscribeIncomingPlayRequests() {
+      const MQTT_URL = "wss://8642b4b309514925a481432e0557cffc.s1.eu.hivemq.cloud:8884/mqtt";
+      const MQTT_USERNAME = "imakashadhikary";
+      const MQTT_PASSWORD = "Askaban78@#";
+
+      mqttClient = mqtt.connect(MQTT_URL, { username: MQTT_USERNAME, password: MQTT_PASSWORD, clean: true });
+
+      mqttClient.on("connect", () => {
+        console.log("MQTT Connected for notifications");
+        mqttClient.subscribe(`user/${currentUser.id}/play_requests`);
+      });
+
+      mqttClient.on("message", async (topic, message) => {
+        if (topic.endsWith("/play_requests")) {
+          const data = JSON.parse(message.toString());
+          showPopup(`Play request from ${data.from_user_email}`, async () => {
+            acceptPlayRequest(data);
+          }, async () => {
+            await supabase.from("play_requests").update({status:"denied"}).eq("id", data.id);
+          });
+        }
+      });
+    }
+
+    function showPopup(msg, onAccept, onDecline) {
+      const popup = document.createElement("div");
+      popup.classList.add("popup");
+      popup.innerHTML = `
+        ${msg} 
+        <button id="acceptBtn">Accept</button>
+        <button id="declineBtn">Decline</button>
+      `;
+      document.body.appendChild(popup);
+      document.getElementById("acceptBtn").addEventListener("click", () => { onAccept(); popup.remove(); });
+      document.getElementById("declineBtn").addEventListener("click", () => { onDecline(); popup.remove(); });
+    }
+
+    // --- MQTT for active game ---
+    function initMQTT() {
+      const MQTT_URL = "wss://8642b4b309514925a481432e0557cffc.s1.eu.hivemq.cloud:8884/mqtt";
+      const MQTT_USERNAME = "imakashadhikary";
+      const MQTT_PASSWORD = "Askaban78@#";
+
+      mqttClient = mqtt.connect(MQTT_URL, { username: MQTT_USERNAME, password: MQTT_PASSWORD, clean: true });
+
+      mqttClient.on("connect", () => {
+        console.log("MQTT Connected for game");
+        mqttClient.subscribe(`${topicName}/slider`);
+        mqttClient.subscribe(`${topicName}/chat`);
+        mqttClient.subscribe(`${topicName}/game`);
+        mqttClient.subscribe(`${topicName}/game_status`);
+      });
+
+      mqttClient.on("message", (topic, message) => {
+        const msg = message.toString();
+        if (topic.endsWith("/slider") && role==="receiver") {
+          document.getElementById("receivedValue").innerText = msg;
+        }
+        if (topic.endsWith("/chat")) {
+          const chatDiv = document.getElementById("chatMessages");
+          chatDiv.innerHTML += `<div>${msg}</div>`;
+          chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+        if (topic.endsWith("/game_status") && msg==="started") {
+          if (!activeGame) { 
+            activeGame = topicName; 
+            document.getElementById("playDiv").style.display = "block"; 
+            document.getElementById("friendsContainer").style.display = "none"; 
+          }
+        }
+        if (topic.endsWith("/game") && msg==="ended") {
+          alert("Game ended by other user.");
+          activeGame = null;
+          topicName = null;
+          role = null;
+          document.getElementById("playDiv").style.display = "none";
+          document.getElementById("friendsContainer").style.display = "block";
+        }
+      });
+
+      if (role==="sender") {
+        document.getElementById("playSlider").addEventListener("input", e => {
+          const val = e.target.value;
+          document.getElementById("sliderValue").innerText = val;
+          if (mqttClient) mqttClient.publish(`${topicName}/slider`, val);
+        });
+      }
+
+      document.getElementById("sendBtn").addEventListener("click", () => {
+        const msg = `${currentUser.email}: ${document.getElementById("chatInput").value}`;
+        document.getElementById("chatInput").value = "";
+        const chatDiv = document.getElementById("chatMessages");
+        // chatDiv.innerHTML += `<div>${msg}</div>`;
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+        if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
+      });
+
+      document.getElementById("endGameBtn").addEventListener("click", async () => {
+        if (!confirm("End the game?")) return;
+        if (mqttClient && topicName) mqttClient.publish(`${topicName}/game`, "ended");
+        await supabase.from("game_sessions").update({status:"ended"}).eq("topic_name", topicName);
+        activeGame = null;
+        topicName = null;
+        role = null;
+        document.getElementById("playDiv").style.display = "none";
+        document.getElementById("friendsContainer").style.display = "block";
+      });
+    }
+  </script>
+</body>
+</html>
