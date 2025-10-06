@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sign Up</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      height: 100vh;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: #fff;
+      padding: 2.5rem 2rem;
+      border-radius: 1rem;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+      width: 100%;
+      max-width: 450px;
+      text-align: center;
+      animation: fadeIn 0.6s ease-in-out;
+    }
+    h1 { margin-bottom: 1rem; font-size: 1.8rem; color: #333; }
+    input, select {
+      width: 100%; padding: 0.75rem; margin: 0.5rem 0;
+      border: 1px solid #ccc; border-radius: 0.5rem;
+      font-size: 1rem; transition: 0.3s;
+    }
+    input:focus, select:focus {
+      border-color: #667eea;
+      outline: none;
+      box-shadow: 0 0 6px rgba(102,126,234,0.5);
+    }
+    button {
+      width: 100%; padding: 0.75rem; margin-top: 1rem;
+      border: none; border-radius: 0.5rem;
+      font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: 0.3s ease;
+      background: #667eea; color: white;
+    }
+    button:hover { background: #5a67d8; }
+    .links { margin-top: 1rem; font-size: 0.9rem; }
+    .links a { color: #667eea; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+    .error { color: red; font-size: 0.85rem; margin-top: 0.2rem; text-align: left; }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(20px);} to { opacity:1; transform: translateY(0);} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Sign Up</h1>
+    <input type="text" id="fullName" placeholder="Full Name" required />
+    <input type="text" id="username" placeholder="Username" required />
+    <div id="usernameError" class="error"></div>
+    <input type="email" id="email" placeholder="Email" required />
+    <div id="emailError" class="error"></div>
+    <select id="gender" required>
+      <option value="">Select Gender</option>
+      <option value="male">Male</option>
+      <option value="female">Female</option>
+      <option value="other">Other</option>
+    </select>
+    <input type="password" id="password" placeholder="Password" required />
+    <input type="number" id="age" placeholder="Age" required min="18" />
+    <div id="ageError" class="error"></div>
+    <button id="signupBtn">Sign Up</button>
+    <div class="links">
+      Already have an account? <a href="login.html">Login</a>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyeWt3ZnhkeXF6aWhlZ3VmeXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NzAyOTcsImV4cCI6MjA3NTI0NjI5N30.MyuWcHwVUVjbslHrfxwReU0FST0mo-B-lpzsAZkL4oQ";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    async function checkUnique(field, value) {
+      const { data } = await supabase.from("profiles").select(field).eq(field,value).limit(1);
+      return data.length === 0;
+    }
+
+    async function signUpUser() {
+      const fullName = document.getElementById("fullName").value.trim();
+      const username = document.getElementById("username").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const gender = document.getElementById("gender").value;
+      const password = document.getElementById("password").value.trim();
+      const age = parseInt(document.getElementById("age").value.trim());
+
+      // Reset errors
+      document.getElementById("usernameError").innerText="";
+      document.getElementById("emailError").innerText="";
+      document.getElementById("ageError").innerText="";
+
+      if(!fullName || !username || !email || !gender || !password || !age) { alert("Fill all fields"); return; }
+      if(age<18) { document.getElementById("ageError").innerText="You must be 18 or older"; return; }
+
+      // Check unique username/email
+      if(!(await checkUnique("username", username))) { document.getElementById("usernameError").innerText="Username already taken"; return; }
+      if(!(await checkUnique("email", email))) { document.getElementById("emailError").innerText="Email already registered"; return; }
+
+      try {
+        // Create Supabase Auth user
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if(error) throw error;
+
+        // Insert profile
+        await supabase.from("profiles").insert({ 
+          id: data.user.id, full_name: fullName, username, email, gender, age 
+        });
+
+        alert("Signup successful! Please verify your email before logging in.");
+        window.location.href = "login.html";
+
+      } catch(err) { alert("Signup error: " + err.message); }
+    }
+
+    document.getElementById("signupBtn").addEventListener("click", signUpUser);
+    document.querySelectorAll("input, select").forEach(el => {
+      el.addEventListener("keyup", e => { if(e.key==="Enter") signUpUser(); });
+    });
+  </script>
+</body>
+</html>
