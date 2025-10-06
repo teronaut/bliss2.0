@@ -54,7 +54,7 @@
       const password = document.getElementById("password").value;
 
       try {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
         currentUser = data.user;
@@ -69,7 +69,7 @@
         document.getElementById("user-email").innerText = currentUser.email;
 
         // Upsert profile into Supabase
-        await supabaseClient.from("profiles").upsert({
+        await supabase.from("profiles").upsert({
           id: currentUser.id,
           email: currentUser.email,
           username: currentUser.email.split("@")[0]
