@@ -4,22 +4,80 @@
   <meta charset="UTF-8" />
   <title>Home</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      margin: 0;
+      background: #f4f6f9;
+      color: #333;
+    }
+
+    /* Navbar */
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #2d6cdf;
+      padding: 12px 24px;
+      color: #fff;
+    }
+    .navbar h1 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+    .nav-buttons button {
+      margin-left: 12px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #fff;
+      color: #2d6cdf;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    .nav-buttons button:hover {
+      background: #e6ecfa;
+    }
+
+    /* Main content */
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+      text-align: center;
+    }
+    .container h3 {
+      font-size: 1.4rem;
+      margin-bottom: 10px;
+    }
+    .container p {
+      font-size: 1rem;
+      color: #666;
+    }
+  </style>
 </head>
 <body>
   <!-- Navigation Bar -->
-  <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
-    <h1>Home</h1>
-    <div>
+  <div class="navbar">
+    <h1>My App</h1>
+    <div class="nav-buttons">
       <button onclick="goHome()">Home</button>
       <button onclick="goNotifications()">Notifications</button>
       <button onclick="goSearch()">Search Users</button>
       <button onclick="goPlay()">Play</button>
-      <button id="signoutBtn">Sign Out</button>
+      <button id="signoutBtn" style="background:#ff4d4d; color:white;">Sign Out</button>
     </div>
   </div>
 
-  <h3>Welcome!</h3>
-  <p>Use the navigation buttons to explore the app.</p>
+  <!-- Main Content -->
+  <div class="container">
+    <h3>Welcome 🎉</h3>
+    <p>You’re logged in. Use the navigation above to explore the app.</p>
+  </div>
 
   <script>
     const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
@@ -33,6 +91,7 @@
         window.location.href = "login.html";
       } else {
         currentUser = session.user;
+        console.log("Logged in as:", currentUser.email);
       }
     }
     checkSession();
