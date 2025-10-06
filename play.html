@@ -357,13 +357,13 @@
         });
       }
 
-      document.getElementById("sendBtn").addEventListener("click", () => {
-        const msg = `${currentUser.email}: ${document.getElementById("chatInput").value}`;
-        document.getElementById("chatInput").value = "";
-        const chatDiv = document.getElementById("chatMessages");
-        chatDiv.scrollTop = chatDiv.scrollHeight;
-        if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
-      });
+    //   document.getElementById("sendBtn").addEventListener("click", () => {
+    //     const msg = `${currentUser.email}: ${document.getElementById("chatInput").value}`;
+    //     document.getElementById("chatInput").value = "";
+    //     const chatDiv = document.getElementById("chatMessages");
+    //     chatDiv.scrollTop = chatDiv.scrollHeight;
+    //     if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
+    //   });
 
       document.getElementById("sendBtn").addEventListener("click", () => {
         const input = document.getElementById("chatInput");
@@ -378,6 +378,14 @@
         chatDiv.scrollTop = chatDiv.scrollHeight;
 
         if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
+        });
+
+        document.getElementById("chatInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault(); // prevents newline
+            document.getElementById("sendBtn").click();
+            document.getElementById("chatInput").focus(); // keeps focus on input
+        }
         });
 
 
