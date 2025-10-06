@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Login</title>
+  <title>Login / Sign Up</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    input { display: block; margin: 0.5rem 0; padding: 0.5rem; width: 250px; }
+    button { margin-right: 1rem; padding: 0.5rem 1rem; }
+  </style>
 </head>
 <body>
   <h1>Login / Sign Up</h1>
@@ -13,11 +18,12 @@
   <button id="loginBtn">Login</button>
 
   <script>
+    // --- Supabase config ---
     const SUPABASE_URL = "https://grykwfxdyqzihegufyvy.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyeWt3ZnhkeXF6aWhlZ3VmeXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NzAyOTcsImV4cCI6MjA3NTI0NjI5N30.MyuWcHwVUVjbslHrfxwReU0FST0mo-B-lpzsAZkL4oQ";
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // If session exists, redirect to home
+    // --- Redirect if session exists ---
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         window.location.href = "home.html";
@@ -33,7 +39,7 @@
         if (error) throw error;
         alert("Signup successful! Check your email to confirm.");
       } catch (err) {
-        alert(err.message);
+        alert("Signup error: " + err.message);
       }
     });
 
@@ -44,53 +50,37 @@
       try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        
-        currentUser = data.user;
+
+        const currentUser = data.user;
         if (!currentUser) {
           alert("Login failed: no user returned");
           return;
         }
-        await supabase.from("profiles").upsert({
-          id: currentUser.id,
-          email: currentUser.email,
-          username: currentUser.email.split("@")[0]
-        });
+
+        // Upsert profile (requires RLS policies as you set earlier)
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .upsert({
+            id: currentUser.id,
+            email: currentUser.email,
+            username: currentUser.email.split("@")[0]
+          });
+
+        if (profileError) {
+          console.error("Profile upsert error:", profileError.message);
+          alert("Profile creation failed: " + profileError.message);
+          return;
+        }
+
+        console.log("Profile created/updated:", profile);
+
+        // Redirect to home
         window.location.href = "home.html";
+
       } catch (err) {
         alert("Login error: " + err.message);
       }
     });
-    
-
-    // document.getElementById("loginBtn").addEventListener("click", async () => {
-    //   const email = document.getElementById("email").value;
-    //   const password = document.getElementById("password").value;
-
-    //   try {
-    //     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    //     if (error) throw error;
-
-    //     currentUser = data.user;
-    //     if (!currentUser) {
-    //       alert("Login failed: no user returned");
-    //       return;
-    //     }
-
-    //     // Hide auth section, show app section
-    //     document.getElementById("auth-section").style.display = "none";
-    //     document.getElementById("app-section").style.display = "block";
-    //     document.getElementById("user-email").innerText = currentUser.email;
-
-    //     // Upsert profile into Supabase
-    //     await supabase.from("profiles").upsert({
-    //       id: currentUser.id,
-    //       email: currentUser.email,
-    //       username: currentUser.email.split("@")[0]
-    //     });
-    //   } catch (err) {
-    //     alert("Login error: " + err.message);
-    //   }
-    // });
   </script>
 </body>
 </html>
