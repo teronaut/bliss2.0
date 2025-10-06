@@ -82,11 +82,11 @@
         if(!data.user) { alert("Login failed"); return; }
 
         // Upsert profile if missing
-        await supabase.from("profiles").upsert({
-          id: data.user.id,
-          email: data.user.email,
-          username: data.user.email.split("@")[0]
-        });
+        // await supabase.from("profiles").upsert({
+        //   id: data.user.id,
+        //   email: data.user.email,
+        //   username: data.user.email.split("@")[0]
+        // });
 
         window.location.href = "home.html";
       } catch(err) { alert("Login error: " + err.message); }
