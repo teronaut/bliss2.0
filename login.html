@@ -38,46 +38,53 @@
     });
 
     // --- Login ---
-    // document.getElementById("loginBtn").addEventListener("click", async () => {
-    //   const email = document.getElementById("email").value;
-    //   const password = document.getElementById("password").value;
-    //   try {
-    //     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    //     if (error) throw error;
-    //     window.location.href = "home.html";
-    //   } catch (err) {
-    //     alert("Login error: " + err.message);
-    //   }
-    // });
     document.getElementById("loginBtn").addEventListener("click", async () => {
       const email = document.getElementById("email").value;
       const password = document.getElementById("password").value;
-
       try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-
-        currentUser = data.user;
-        if (!currentUser) {
-          alert("Login failed: no user returned");
-          return;
-        }
-
-        // Hide auth section, show app section
-        document.getElementById("auth-section").style.display = "none";
-        document.getElementById("app-section").style.display = "block";
-        document.getElementById("user-email").innerText = currentUser.email;
-
-        // Upsert profile into Supabase
         await supabase.from("profiles").upsert({
           id: currentUser.id,
           email: currentUser.email,
           username: currentUser.email.split("@")[0]
         });
+        window.location.href = "home.html";
       } catch (err) {
         alert("Login error: " + err.message);
       }
     });
+    
+
+    // document.getElementById("loginBtn").addEventListener("click", async () => {
+    //   const email = document.getElementById("email").value;
+    //   const password = document.getElementById("password").value;
+
+    //   try {
+    //     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    //     if (error) throw error;
+
+    //     currentUser = data.user;
+    //     if (!currentUser) {
+    //       alert("Login failed: no user returned");
+    //       return;
+    //     }
+
+    //     // Hide auth section, show app section
+    //     document.getElementById("auth-section").style.display = "none";
+    //     document.getElementById("app-section").style.display = "block";
+    //     document.getElementById("user-email").innerText = currentUser.email;
+
+    //     // Upsert profile into Supabase
+    //     await supabase.from("profiles").upsert({
+    //       id: currentUser.id,
+    //       email: currentUser.email,
+    //       username: currentUser.email.split("@")[0]
+    //     });
+    //   } catch (err) {
+    //     alert("Login error: " + err.message);
+    //   }
+    // });
   </script>
 </body>
 </html>
