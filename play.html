@@ -365,6 +365,22 @@
         if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
       });
 
+      document.getElementById("sendBtn").addEventListener("click", () => {
+        const input = document.getElementById("chatInput");
+        const msgText = input.value.trim();
+        if (!msgText) return; // do nothing if empty
+
+        const msg = `${currentUser.email}: ${msgText}`;
+        input.value = "";
+        input.focus(); // auto-focus after sending
+
+        const chatDiv = document.getElementById("chatMessages");
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+
+        if (mqttClient) mqttClient.publish(`${topicName}/chat`, msg);
+        });
+
+
       document.getElementById("endGameBtn").addEventListener("click", async () => {
         if (!confirm("End the game?")) return;
         if (mqttClient && topicName) mqttClient.publish(`${topicName}/game`, "ended");
